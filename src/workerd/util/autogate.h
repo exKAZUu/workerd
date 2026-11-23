@@ -145,7 +145,10 @@ namespace workerd::util {
   /* WorkerEntrypoint::construct() returns a Rust WorkerEntrypoint (io/entrypoint) that owns the   \
      C++ one. It delivers the scheduled event in Rust and every other event by calling the C++     \
      WorkerEntrypoint. */                                                                          \
-  V(RUST_WORKER_ENTRYPOINT)
+  V(RUST_WORKER_ENTRYPOINT)                                                                        \
+  /* With RUST_WORKER_ENTRYPOINT, the Rust WorkerEntrypoint delivers fetch events from Rust        \
+     (io/entrypoint/fetch.rs), taking the steps of WorkerEntrypoint::request() in C++. */          \
+  V(RUST_ENTRYPOINT_FETCH)
 // clang-format on
 // --------------------------------------------------------------------------------------
 

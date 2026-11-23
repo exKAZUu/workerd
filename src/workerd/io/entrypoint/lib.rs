@@ -18,6 +18,7 @@
 //!
 //! See `AGENTS.md` for how the crate fits together and what is left to port.
 
+mod fetch;
 mod ffi;
 mod scheduled;
 
