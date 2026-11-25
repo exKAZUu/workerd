@@ -169,8 +169,7 @@ pub struct WorkerStub(pub Rc<crate::loader::WorkerStub>);
 /// the server back.
 pub struct ServerHandle(pub Weak<Server>);
 
-/// A Durable Object namespace, as its alarm scheduler sees it. Weak: the scheduler lives in the
-/// namespace's storage, which the namespace owns.
+/// A Durable Object namespace, as its storage sees it. Weak: the namespace owns its storage.
 pub struct ActorNamespaceHandle(pub Weak<ActorNamespace>);
 
 /// An actor's way back to its container: the requests it raises for itself (alarms, hibernated

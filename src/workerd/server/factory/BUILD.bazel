@@ -81,7 +81,7 @@ wd_cc_library(
         "//src/workerd/io:worker-entrypoint",
         "//src/workerd/jsg",
         "//src/workerd/server:actor-id-impl",
-        "//src/workerd/server:alarm-scheduler",
+        "//src/workerd/server:alarm-store",
         "//src/workerd/server:channel-token",
         "//src/workerd/server:compiled-bindings_capnp",
         "//src/workerd/server:container-client",

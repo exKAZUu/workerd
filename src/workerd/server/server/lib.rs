@@ -11,6 +11,7 @@
 //! workers, drain and the test and bench runners.
 
 pub mod actor;
+pub mod actor_alarms;
 pub mod alarm_elsewhere;
 pub mod alarm_scheduler;
 pub mod bench;
