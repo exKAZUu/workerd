@@ -5,6 +5,7 @@
 #pragma once
 
 #include <workerd/io/worker-interface.h>
+#include <workerd/server/alarm-store.h>
 #include <workerd/util/sqlite.h>
 
 #include <kj/async.h>
@@ -88,7 +89,7 @@ class AlarmScheduler final: kj::TaskSet::ErrorHandler {
   kj::Timer& timer;
   std::default_random_engine random;
   GetActorFn getActor;
-  kj::Own<SqliteDatabase> db;
+  AlarmStore store;
   kj::TaskSet tasks;
 
   struct ScheduledAlarm {
@@ -122,24 +123,10 @@ class AlarmScheduler final: kj::TaskSet::ErrorHandler {
 
   kj::Promise<void> checkTimestamp(kj::Duration delay, kj::Date scheduledTime);
 
-  // On upsert we always refresh scheduled_time, but only overwrite actor_name when the incoming
-  // row actually carries one. The name is supplied when the actor is created via getByName(), but
-  // later setAlarm() calls (e.g. from an already-running alarm handler) bind NULL for it; COALESCE
-  // keeps the previously-stored name in that case instead of clobbering it with NULL.
-  SqliteDatabase::Statement stmtSetAlarm = db->prepare(R"(
-    INSERT INTO _cf_ALARM VALUES(?, ?, ?)
-      ON CONFLICT DO UPDATE SET scheduled_time = excluded.scheduled_time,
-        actor_name = COALESCE(excluded.actor_name, _cf_ALARM.actor_name);
-  )");
-  SqliteDatabase::Statement stmtDeleteAlarm = db->prepare(R"(
-    DELETE FROM _cf_ALARM WHERE actor_id = ?
-  )");
-
   void taskFailed(kj::Exception&& exception) override;
 
   int maxJitterMsForDelay(kj::Duration delay);
 
-  static void ensureInitialized(SqliteDatabase& db);
   void loadAlarmsFromDb();
 };
 

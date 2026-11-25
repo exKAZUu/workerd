@@ -37,45 +37,9 @@ AlarmScheduler::AlarmScheduler(const kj::Clock& clock,
       timer(timer),
       random(makeSeededRandomEngine()),
       getActor(kj::mv(getActor)),
-      db([&] {
-        auto db = kj::heap<SqliteDatabase>(vfs, kj::mv(path),
-            kj::WriteMode::CREATE | kj::WriteMode::MODIFY | kj::WriteMode::CREATE_PARENT);
-        ensureInitialized(*db);
-        return kj::mv(db);
-      }()),
+      store(vfs, kj::mv(path)),
       tasks(*this) {
   loadAlarmsFromDb();
-}
-
-void AlarmScheduler::ensureInitialized(SqliteDatabase& db) {
-  // TODO(sqlite): Do this automatically at a lower layer?
-  db.run("PRAGMA journal_mode=WAL;");
-
-  db.run(R"(
-    CREATE TABLE IF NOT EXISTS _cf_ALARM (
-      actor_id TEXT PRIMARY KEY,
-      scheduled_time INTEGER,
-      actor_name TEXT
-    ) WITHOUT ROWID;
-  )");
-
-  // Migrate databases created before the `actor_name` column existed. SQLite has no
-  // "ADD COLUMN IF NOT EXISTS", so detect the column via PRAGMA table_info first.
-  bool hasNameColumn = false;
-  {
-    auto info = db.run("PRAGMA table_info(_cf_ALARM);");
-    while (!info.isDone()) {
-      // Column 1 of table_info output is the column name.
-      if (info.getText(1) == "actor_name"_kj) {
-        hasNameColumn = true;
-        break;
-      }
-      info.nextRow();
-    }
-  }
-  if (!hasNameColumn) {
-    db.run("ALTER TABLE _cf_ALARM ADD COLUMN actor_name TEXT;");
-  }
 }
 
 void AlarmScheduler::loadAlarmsFromDb() {
@@ -83,18 +47,10 @@ void AlarmScheduler::loadAlarmsFromDb() {
 
   // TODO(someday): don't maintain the entire alarm set in memory -- right now for the usecase of
   // local development, doing so is sufficient.
-  auto query = db->run(R"(
-    SELECT actor_id, scheduled_time, actor_name FROM _cf_ALARM;
-  )");
-
-  while (!query.isDone()) {
-    auto date = kj::UNIX_EPOCH + (kj::NANOSECONDS * query.getInt64(1));
-
-    auto actor = ActorKey(query.getText(0), query.getMaybeText(2));
-    auto scheduledAlarm = scheduleAlarm(now, actor, date);
+  for (auto& alarm: store.load()) {
+    auto actor = ActorKey(kj::mv(alarm.actorId), kj::mv(alarm.name));
+    auto scheduledAlarm = scheduleAlarm(now, actor, alarm.scheduledTime);
     alarms.insert(kj::mv(actor), kj::mv(scheduledAlarm));
-
-    query.nextRow();
   }
 }
 
@@ -116,12 +72,7 @@ kj::Maybe<kj::Date> AlarmScheduler::getAlarm(const ActorKey& actor) {
 }
 
 bool AlarmScheduler::setAlarm(const ActorKey& actor, kj::Date scheduledTime) {
-  int64_t scheduledTimeNs = (scheduledTime - kj::UNIX_EPOCH) / kj::NANOSECONDS;
-  SqliteDatabase::Query::ValuePtr nameParam = nullptr;
-  KJ_IF_SOME(n, actor.name) {
-    nameParam = n.asPtr();
-  }
-  auto query = stmtSetAlarm.run(actor.actorId, scheduledTimeNs, nameParam);
+  bool changed = store.set(actor.actorId, scheduledTime, kj::Maybe<kj::StringPtr>(actor.name));
 
   bool existing = true;
   auto& entry = alarms.findOrCreate(actor, [&]() {
@@ -139,18 +90,18 @@ bool AlarmScheduler::setAlarm(const ActorKey& actor, kj::Date scheduledTime) {
     }
   }
 
-  return query.changeCount() > 0;
+  return changed;
 }
 
 void AlarmScheduler::deleteAll() {
   // Cancel all in-memory alarm tasks.
   alarms.clear();
   // Wipe the persistent store.
-  db->run("DELETE FROM _cf_ALARM;");
+  store.clear();
 }
 
 bool AlarmScheduler::deleteAlarm(const ActorKey& actor) {
-  auto query = stmtDeleteAlarm.run(actor.actorId);
+  bool removed = store.remove(actor.actorId);
 
   KJ_IF_SOME(entry, alarms.findEntry(actor)) {
     KJ_IF_SOME(queued, entry.value.queuedAlarm) {
@@ -168,7 +119,7 @@ bool AlarmScheduler::deleteAlarm(const ActorKey& actor) {
     }
   }
 
-  return query.changeCount() > 0;
+  return removed;
 }
 
 AlarmScheduler::ScheduledAlarm AlarmScheduler::scheduleAlarm(
