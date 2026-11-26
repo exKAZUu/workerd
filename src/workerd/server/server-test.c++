@@ -4856,16 +4856,22 @@ KJ_TEST(
             `  }
             `
             `  fetch(request) {
+            `    if (new URL(request.url).pathname === "/tags") {
+            `      return new Response(this.tagsInCloseHandler);
+            `    }
             `    if (new URL(request.url).pathname === "/close") {
             `      for (const ws of this.ctx.getWebSockets()) ws.close(4001, "kicked");
             `      return new Response("closed");
             `    }
             `    const [client, server] = Object.values(new WebSocketPair());
-            `    this.ctx.acceptWebSocket(server);
+            `    this.ctx.acceptWebSocket(server, ["tag-a"]);
             `    return new Response(null, {status: 101, webSocket: client});
             `  }
             `
-            `  webSocketClose(ws, code, reason) {}
+            `  async webSocketClose(ws, code, reason) {
+            `    await new Promise((resolve) => setTimeout(resolve, 10));
+            `    this.tagsInCloseHandler = JSON.stringify(this.ctx.getTags(ws));
+            `  }
             `}
         )],
         bindings = [(name = "ns", durableObjectNamespace = "Room")],
@@ -4895,6 +4901,9 @@ KJ_TEST(
   // The connection must end well before that, as soon as the handshake has completed.
   test.wait(1);
   KJ_EXPECT(wsConn.isEof());
+
+  // The close handler can still read the WebSocket's tags after the connection has ended.
+  conn.httpGet200("/tags", R"(["tag-a"])");
 }
 
 KJ_TEST("Server: tail workers") {
