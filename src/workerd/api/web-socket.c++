@@ -1788,6 +1788,17 @@ void LegacyWebSocketAdapter::initiateHibernatableRelease(
         "tried to initiate hibernatable release but websocket wasn't hibernatable");
     state.ws.initiateHibernatableRelease(js, kj::mv(tags), releaseState);
     farNative->closedIncoming = true;
+
+    // If our Close has already been sent, the connection is over in both directions, but it ends
+    // only when this end of the pipe goes away: when the incoming pump delivers a Close as the
+    // first message the pipe receives, it keeps pumping afterwards. The pump continuation in
+    // ensurePumping() releases the native WebSocket only if the Close is still being sent when
+    // the peer's Close arrives, so without this the connection would stay open until the actor is
+    // evicted. Abort rather than release so that the close event handler can still read the
+    // WebSocket's tags.
+    if (farNative->closedOutgoing && !farNative->isPumping) {
+      state.ws->abort();
+    }
   } else {
     KJ_LOG(WARNING, "Unexpected Hibernatable WebSocket state on release", farNative->state);
   }
